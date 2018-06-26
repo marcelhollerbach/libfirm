@@ -11,6 +11,7 @@
 #include <adt/pmap.h>
 #include "firm2vhdl.h"
 
+#include <bitwidth.h>
 #include <assert.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -82,6 +83,20 @@ const char *get_output_name(int argument_number)
 	return signals[argument_number];
 }
 
+static unsigned int
+highest_bitwidth_used_bit(ir_node *node)
+{
+	unsigned int bitwidth = bitwidth_used_bits(node);
+
+	if (bitwidth == 0 || bitwidth == 1) return 1;
+	return bitwidth - 1;
+}
+
+static unsigned int
+vhdl_bitwidth_used_bits(ir_node *node)
+{
+	return highest_bitwidth_used_bit(node) + 1;
+}
 
 static void emit_phi_signals(ir_node *node, void *data)
 {
@@ -91,7 +106,7 @@ static void emit_phi_signals(ir_node *node, void *data)
 	if (is_Phi(node) && mode != mode_M) {
 		ir_fprintf(env->file, "\tsignal phi%N : ", node);
 		fprintf(env->file, mode_is_signed(mode) ? "signed" : "unsigned");
-		fprintf(env->file, "(%u downto 0)" SIGNAL_INITIALIZER ";", get_mode_size_bits(mode)-1);
+		fprintf(env->file, "(%u downto 0)" SIGNAL_INITIALIZER ";", highest_bitwidth_used_bit(node));
 		ir_fprintf(env->file, "-- %+F \n", node);
 	}
 }
@@ -131,7 +146,7 @@ static void emit_variable(ir_node *node, void *data)
 
 	ir_fprintf(env->file, "\tvariable node%N : ", node);
 	   fprintf(env->file, mode_is_signed(mode) ? "signed" : "unsigned");
-	   fprintf(env->file, "(%u downto 0)" SIGNAL_INITIALIZER ";", get_mode_size_bits(mode)-1);
+	   fprintf(env->file, "(%u downto 0)" SIGNAL_INITIALIZER ";", highest_bitwidth_used_bit(node));
 	ir_fprintf(env->file, " -- %+F \n", node);
 }
 
@@ -216,7 +231,7 @@ static void emit_process(ir_node *node, void *data)
 
 	case iro_Return: {
 		for (int n = 0; n < get_Return_n_ress(node); n++) {
-			ir_obst_printf(obst, "\t\t\t%s <= std_logic_vector(node%N);\t-- %+F\n",
+			ir_obst_printf(obst, "\t\t\t%s <= std_logic_vector(resize(node%N,32));\t-- %+F\n",
 			               get_output_name(n), get_Return_res(node, n), node);
 			ir_obst_printf(obst, "\t\t\tREADY <= '1';\n");
 		}
@@ -224,8 +239,13 @@ static void emit_process(ir_node *node, void *data)
 		break;
 
 #define BINOP(op) \
-		ir_obst_printf(obst, "\t\t\tnode%N := node%N " #op " node%N;\t-- %+F\n", \
-		               node, get_binop_left(node), get_binop_right(node), node)
+		if (get_irn_mode(node) == mode_b) { \
+			ir_obst_printf(obst, "\t\t\tnode%N := node%N " #op " node%N;\t-- %+F\n", \
+			               node, get_binop_left(node), get_binop_right(node), node); \
+		} else { \
+			ir_obst_printf(obst, "\t\t\tnode%N := resize(node%N,%u) " #op " resize(node%N,%u);\t-- %+F\n", \
+			               node, get_binop_left(node), vhdl_bitwidth_used_bits(node), get_binop_right(node), vhdl_bitwidth_used_bits(node), node); \
+		}
 
 	case iro_Add: BINOP(+);   break;
 	case iro_Sub: BINOP(-);   break;
@@ -238,11 +258,13 @@ static void emit_process(ir_node *node, void *data)
 	case iro_Mul:
 		// Convert to unsigned to get the correct MSB of the result.
 		// (VHDL preserves the sign bit when resizing signed values)
-		ir_obst_printf(obst, "\t\t\tnode%N := %s(std_logic_vector(resize(unsigned(std_logic_vector(node%N * node%N)), %u)));\t-- %+F\n",
+		ir_obst_printf(obst, "\t\t\tnode%N := resize(%s(std_logic_vector((unsigned(std_logic_vector(resize(node%N, %u) * resize(node%N, %u)))))), %u);\t-- %+F\n",
 		               node,
 		               mode_is_signed(mode) ? "signed" : "unsigned",
-		               get_binop_left(node), get_binop_right(node),
-		               get_mode_size_bits(mode), node);
+		               get_binop_left(node), vhdl_bitwidth_used_bits(node),
+		               get_binop_right(node), vhdl_bitwidth_used_bits(node),
+		               vhdl_bitwidth_used_bits(node),
+		               node);
 		break;
 	case iro_Not:
 		ir_obst_printf(obst, "\t\t\tnode%N := not node%N;\t-- %+F\n",
@@ -259,17 +281,19 @@ static void emit_process(ir_node *node, void *data)
 		obstack_printf(obst, "to_%s(%ld, %u);",
 		               mode_is_signed(mode) ? "signed" : "unsigned",
 		               get_tarval_long(get_PinnedConst_tarval(node)),
-		               get_mode_size_bits(mode));
+		               vhdl_bitwidth_used_bits(node));
 		ir_obst_printf(obst, "\t-- %+F\n", node);
 		break;
 
 	case iro_Mux:
-		ir_obst_printf(obst, "\t\t\tif node%N then node%N := node%N; else node%N := node%N; end if;\t-- %+F\n",
+		ir_obst_printf(obst, "\t\t\tif node%N then node%N := resize(node%N,%u); else node%N := resize(node%N,%u); end if;\t-- %+F\n",
 		               get_Mux_sel(node),
 		               node,
 		               get_Mux_true(node),
+		               vhdl_bitwidth_used_bits(node),
 		               node,
 		               get_Mux_false(node),
+		               vhdl_bitwidth_used_bits(node),
 		               node);
 		break;
 
@@ -284,31 +308,37 @@ static void emit_process(ir_node *node, void *data)
 
 	case iro_Shl:
 		assert(is_PinnedConst(get_Shl_right(node)));
-		ir_obst_printf(obst, "\t\t\tnode%N := shift_left(unsigned(node%N), %u);\t-- %+F\n",
+		ir_obst_printf(obst, "\t\t\tnode%N := resize(shift_left(unsigned(resize(node%N,%u)), %u),%u);\t-- %+F\n",
 		               node,
 		               get_Shl_left(node),
+		               get_mode_size_bits(mode),
 		               get_tarval_long(get_PinnedConst_tarval(get_Shl_right(node))),
+		               vhdl_bitwidth_used_bits(node),
 		               node);
 		break;
 
 
 	case iro_Shr:
 		assert(is_PinnedConst(get_Shr_right(node)));
-		ir_obst_printf(obst, "\t\t\tnode%N := %s(shift_right(unsigned(node%N), %u));\t-- %+F\n",
+		ir_obst_printf(obst, "\t\t\tnode%N := resize(%s(shift_right(unsigned(resize(node%N,%u)), %u)),%u);\t-- %+F\n",
 		               node,
 		               mode_is_signed(mode) ? "signed" : "",
 		               get_Shr_left(node),
+		               get_mode_size_bits(mode),
 		               get_tarval_long(get_PinnedConst_tarval(get_Shr_right(node))),
+		               vhdl_bitwidth_used_bits(node),
 		               node);
 		break;
 
 	case iro_Shrs:
 		assert(is_PinnedConst(get_Shrs_right(node)));
-		ir_obst_printf(obst, "\t\t\tnode%N := %s(shift_right(signed(node%N), %u));\t-- %+F\n",
+		ir_obst_printf(obst, "\t\t\tnode%N := resize(%s(shift_right(signed(resize(node%N,%u)),%u)), %u);\t-- %+F\n",
 		               node,
 		               mode_is_signed(mode) ? "" : "unsigned",
 		               get_Shrs_left(node),
+		               get_mode_size_bits(mode),
 		               get_tarval_long(get_PinnedConst_tarval(get_Shrs_right(node))),
+		               vhdl_bitwidth_used_bits(node),
 		               node);
 		break;
 
@@ -319,19 +349,23 @@ static void emit_process(ir_node *node, void *data)
 		if (is_downconv(pred_mode, mode) && mode_is_signed(pred_mode)) {
 			/* IEEE.numeric_std transplants the sign bit on downconv from a
 			   signed type.  Avoid this case to maintain C semantics. */
-			ir_obst_printf(obst, "\t\t\tnode%N := %s(resize(unsigned(node%N),%u));\t-- %+F\n",
+			ir_obst_printf(obst, "\t\t\tnode%N := resize(%s(resize(unsigned(resize(node%N,%u)),%u)), %u);\t-- %+F\n",
 			               node,
 			               (mode_is_signed(mode) ? "signed" : ""),
 			               pred,
+			               get_mode_size_bits(pred_mode),
 			               get_mode_size_bits(mode),
+			               bitwidth_used_bits(node),
 			               node);
 		} else {
-			ir_obst_printf(obst, "\t\t\tnode%N := %s(resize(node%N,%u));\t-- %+F\n",
+			ir_obst_printf(obst, "\t\t\tnode%N := resize(%s(resize(resize(node%N,%u),%u)),%u);\t-- %+F\n",
 			               node,
 			               (mode_is_signed(mode) == mode_is_signed(pred_mode)) ? "" :
 			               (mode_is_signed(mode) ? "signed" : "unsigned "),
 			               pred,
+			               get_mode_size_bits(pred_mode),
 			               get_mode_size_bits(mode),
+			               bitwidth_used_bits(node),
 			               node);
 		}
 	}

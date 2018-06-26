@@ -62,6 +62,7 @@ static void irp2vhdl(char *filename)
 		dump_ir_graph(irg, "cf");
 
 		conv_opt(irg);
+		compute_bitwidth_info(irg);
 		dump_ir_graph(irg, "conv");
 
 		lower_for_vhdl(irg);
