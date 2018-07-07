@@ -37,20 +37,18 @@ typedef struct{
 	unsigned int false_counter;
 } Cmp_Custom_Information;
 
+
 #define MAXIMUM_NUMBER(op) (pow(2, bitwidth_used_bits(op)))
 
 static void evalulate_node(ir_node *node, pqueue_t *queue);
 
-unsigned int
+unsigned long
 bitwidth_upper_bound(const ir_node *const node)
 {
-	 unsigned int upper_bound = MAXIMUM_NUMBER(node);
+	ir_mode *mode;
 
-   if (mode_is_signed(get_irn_mode(node))) {
-   	 return upper_bound / 2;
-   } else {
-   	 return upper_bound;
-   }
+	mode = get_irn_mode(node);
+	return ((unsigned long)1 << (unsigned long)(bitwidth_used_bits(node) - (mode_is_signed(mode) ? 1 : 0))) - 1;
 }
 
 unsigned int
@@ -324,7 +322,7 @@ handle_true_blocks(ir_node *cmp, ir_node *op, pqueue_t *queue)
 				bitwidth *op_b = bitwidth_fetch_bitwidth(op);
 				ir_node *konst, *confirm;
 
-				konst = new_r_Const_long(get_irn_irg(cmp), get_irn_mode(op), MAXIMUM_NUMBER(op));
+				konst = new_r_Const_long(get_irn_irg(cmp), get_irn_mode(op), bitwidth_upper_bound(op));
 				create_node(konst, NULL);
 				confirm = new_r_Confirm(get_block(cmp), op, konst, ir_relation_less_equal);
 				create_node(confirm, NULL);
