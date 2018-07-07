@@ -240,7 +240,7 @@ evalulate_node(ir_node *node, pqueue_t *queue)
 			obj_b = get_Add_right(node);
 			bitwidth *a = bitwidth_fetch_bitwidth(obj_a), *b = bitwidth_fetch_bitwidth(obj_b);
 			int bigger_bitwidth = MIN(a->stable_digits, b->stable_digits);
-			new.stable_digits = MAX(bigger_bitwidth - 1, 0);
+			new.stable_digits = MAX((int)bigger_bitwidth - 1, 0);
 			if (a->is_positive && b->is_positive && new.stable_digits != 0)
 				new.is_positive = true;
 			else
@@ -255,7 +255,7 @@ evalulate_node(ir_node *node, pqueue_t *queue)
 			obj_b = get_Sub_right(node);
 			bitwidth *a = bitwidth_fetch_bitwidth(obj_a), *b = bitwidth_fetch_bitwidth(obj_b);
 			int bigger_bitwidth = MIN(a->stable_digits, b->stable_digits);
-			new.stable_digits = MAX(bigger_bitwidth - 1, 0);
+			new.stable_digits = MAX((int)bigger_bitwidth - 1, 0);
 			new.is_positive = false;
 			break;
 		}
@@ -264,7 +264,7 @@ evalulate_node(ir_node *node, pqueue_t *queue)
 			//we do + 1 - bitwidth gets one werse
 			obj_a = get_Minus_op(node);
 			bitwidth *a = bitwidth_fetch_bitwidth(obj_a);
-			new.stable_digits = MAX(a->stable_digits - 1, 0);
+			new.stable_digits = MAX((int)a->stable_digits - 1, 0);
 			new.is_positive = false;
 			break;
 		}
@@ -352,7 +352,7 @@ evalulate_node(ir_node *node, pqueue_t *queue)
 			if (!mode_is_signed(mode_right))
 				new.stable_digits = a->stable_digits;
 			else
-				new.stable_digits = a->stable_digits - 1;
+				new.stable_digits = (int)a->stable_digits - 1;
 
 			if (a->is_positive && b->is_positive && new.stable_digits > 0)
 				new.is_positive = true;
