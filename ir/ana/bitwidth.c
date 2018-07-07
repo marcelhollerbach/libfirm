@@ -97,13 +97,13 @@ create_node(ir_node *node, void *data)
 	ir_mode *mode = get_irn_mode(node);
 	bitwidth *info;
 
-	if (is_Cmp_(node)) {
-	 	info = XMALLOC(bitwidth);
+	if (is_Cmp(node)) {
+		info = (bitwidth*)XMALLOC(Cmp_Custom_Information);
 		Cmp_Custom_Information *i = (Cmp_Custom_Information*) info;
 		i->true_counter = 0;
 		i->false_counter = 0;
 	} else {
-		info = (bitwidth*)XMALLOC(Cmp_Custom_Information);
+	 	info = XMALLOC(bitwidth);
 	}
 
 	info->valid = is_meaningfull(node);
