@@ -47,8 +47,12 @@ bitwidth_upper_bound(const ir_node *const node)
 {
 	ir_mode *mode;
 
-	mode = get_irn_mode(node);
-	return ((unsigned long)1 << (unsigned long)(bitwidth_used_bits(node) - (mode_is_signed(mode) ? 1 : 0))) - 1;
+	if (is_Const(node)) {
+		return get_Const_long(node);
+	} else {
+		mode = get_irn_mode(node);
+		return ((unsigned long)1 << (unsigned long)(bitwidth_used_bits(node) - (mode_is_signed(mode) ? 1 : 0))) - 1;
+	}
 }
 
 unsigned int
