@@ -186,22 +186,6 @@ refit_children(ir_node *node, pqueue_t *queue)
 }
 
 static long
-generate_max_value(ir_node *n)
-{
-	if (get_irn_opcode_(n) == iro_Const) {
-		return get_Const_long(n);
-	} else {
-		ir_mode *mode = get_irn_mode(n);
-		unsigned bits = get_mode_size_bits(mode);
-
-		if (mode_is_signed(mode))
-			return pow(2, bits - 1) - 1;
-		else
-			return pow(2, bits) - 1;
-	}
-}
-
-static long
 generate_min_abs_value(ir_node *n)
 {
 	if (get_irn_opcode_(n) == iro_Const) {
@@ -494,7 +478,7 @@ evalulate_node(ir_node *node, pqueue_t *queue)
 			obj_a = get_Mod_right(node);
 			obj_b = get_Mod_right(node);
 			bitwidth *a = bitwidth_fetch_bitwidth(obj_a), *b = bitwidth_fetch_bitwidth(obj_b);
-			unsigned max_val = generate_max_value(obj_b);
+			unsigned max_val = bitwidth_upper_bound(obj_b);
 
 			new.stable_digits = log2_floor(max_val) + 1;
 			new.is_positive = a->is_positive;
@@ -504,7 +488,7 @@ evalulate_node(ir_node *node, pqueue_t *queue)
 			//shift left makes the number of stable digits lower by the amount of min of the right node
 			ir_node *obj_a = get_Shl_left(node) , *obj_b = get_Shl_right(node);
 			bitwidth *a = bitwidth_fetch_bitwidth(obj_a);
-			long max_val = generate_max_value(obj_b);
+			long max_val = bitwidth_upper_bound(obj_b);
 
 			if (get_irn_opcode(obj_b) == iro_Const) {
 				new.stable_digits = a->stable_digits - max_val;
