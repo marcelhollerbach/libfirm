@@ -362,12 +362,12 @@ mode_check_representability(ir_mode *mode, ir_node *konst)
 		return false;
 
 	v = get_Const_long(konst);
-	upper_bound = (1 << (get_mode_size_bits(mode) - (mode_is_signed(mode) ? 1 : 0))) - 1;
 
 	if (!mode_is_signed(mode) && v < 0)
 		return false;
 
-	if (upper_bound < bitwidth_upper_bound(konst))
+	upper_bound = (1 << (get_mode_size_bits(mode) - (mode_is_signed(mode) ? 1 : 0))) - 1;
+	if (upper_bound < v)
 		return false;
 
 	return true;
