@@ -17,6 +17,7 @@
 #include "irnodemap.h"
 #include "iropt.h"
 #include "irhooks.h"
+#include "ircons.h"
 #include "nodes.h"
 #include "pqueue.h"
 #include "util.h"
@@ -29,6 +30,28 @@
 #include "pset_new.h"
 
 #include <assert.h>
+
+typedef struct{
+	bitwidth bitwidth;
+	unsigned int true_counter;
+	unsigned int false_counter;
+} Cmp_Custom_Information;
+
+#define MAXIMUM_NUMBER(op) (pow(2, bitwidth_used_bits(op)))
+
+static void evalulate_node(ir_node *node, pqueue_t *queue);
+
+unsigned int
+bitwidth_upper_bound(const ir_node *const node)
+{
+	 unsigned int upper_bound = MAXIMUM_NUMBER(node);
+
+   if (mode_is_signed(get_irn_mode(node))) {
+   	 return upper_bound / 2;
+   } else {
+   	 return upper_bound;
+   }
+}
 
 unsigned int
 bitwidth_used_bits(const ir_node *const node)
@@ -71,8 +94,17 @@ static void
 create_node(ir_node *node, void *data)
 {
 	ir_graph *g = get_irn_irg(node);
-	bitwidth *info = XMALLOC(bitwidth);
 	ir_mode *mode = get_irn_mode(node);
+	bitwidth *info;
+
+	if (is_Cmp_(node)) {
+	 	info = XMALLOC(bitwidth);
+		Cmp_Custom_Information *i = (Cmp_Custom_Information*) info;
+		i->true_counter = 0;
+		i->false_counter = 0;
+	} else {
+		info = (bitwidth*)XMALLOC(Cmp_Custom_Information);
+	}
 
 	info->valid = is_meaningfull(node);
 	info->stable_digits = 0;
@@ -145,8 +177,8 @@ add_node(ir_node *node, void *data)
 static void
 refit_children(ir_node *node, pqueue_t *queue)
 {
-	for (int n = 0; n < get_irn_n_outs(node); ++n) {
-		ir_node *successor = get_irn_out(node, n);
+	foreach_out_edge(node, edge) {
+		ir_node *successor = get_edge_src_irn(edge);
 		pqueue_put(queue, successor, 0);
 	}
 }
@@ -222,12 +254,157 @@ cmp_bitwidth(bitwidth *a, bitwidth *b)
 
 }
 
+static bool
+op_one_unstable(ir_node *n, ir_node **unstable)
+{
+	*unstable = NULL;
+	//iterate over all children
+	for (int i = 0; i < get_irn_arity(n); ++i) {
+		ir_node *in = get_irn_n(n, i);
+		//if not const it is unstable
+		if (!is_Const(in)) {
+			if (!*unstable) {
+			  *unstable = in;
+			} else {
+				//error out, we only allow one unstable node
+				*unstable = NULL;
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+static void
+handle_true_blocks(ir_node *cmp, ir_node *op, pqueue_t *queue)
+{
+	ir_node **block, *original_block;
+	unsigned int size = 0, max = 10;
+
+	original_block = get_block(cmp);
+
+	block = NEW_ARR_F(ir_node*, max);
+
+	//collect the blocks that are positive
+	foreach_out_edge(cmp, to_cond) {
+		//these are cond nodes
+		ir_node *const cond = get_edge_src_irn(to_cond);
+
+		if (!is_Cond(cond)) continue;
+
+		foreach_out_edge(cond, to_proj) {
+			ir_node *const proj = get_edge_src_irn(to_proj);
+
+			assert(is_Proj(proj));
+
+			//find the true proj node of the cmp construct
+			if (get_Proj_num(proj) == 1) {
+
+				block[size] = get_irn_out(proj, 0);
+				size++;
+
+				if (size == max) {
+					max*=2;
+					ARR_RESIZE(ir_node*, block, max);
+				}
+			}
+		}
+	}
+	//walk up from the not const node
+	while(op && get_block(op) == original_block) {
+		ir_node *tmp;
+
+		//check if someone depended on this
+		foreach_out_edge_safe(op, edge) {
+			ir_node *const succ = get_edge_src_irn(edge);
+			int pos = get_edge_src_pos(edge);
+
+			if (get_block(succ) != original_block) {
+				bitwidth *op_b = bitwidth_fetch_bitwidth(op);
+				ir_node *konst, *confirm;
+
+				konst = new_r_Const_long(get_irn_irg(cmp), get_irn_mode(op), MAXIMUM_NUMBER(op));
+				create_node(konst, NULL);
+				confirm = new_r_Confirm(get_block(cmp), op, konst, ir_relation_less_equal);
+				create_node(confirm, NULL);
+				evalulate_node(confirm, queue);
+				set_irn_n(succ, pos, confirm);
+
+				//printf("%d-%s <-> %d-%s (%d)\n", op->node_idx, op->op->name, succ->node_idx, succ->op->name, get_block(succ)->node_idx);
+			}
+		}
+
+		//now skip up one row in the hirachy
+		if (op_one_unstable(op, &tmp)) {
+			op = tmp;
+		} else {
+			op = NULL;
+		}
+
+		//ensure that we only walk up to integer modes, a proj could be ahead
+		if (op && !mode_is_int(get_irn_mode(op)))
+			op = NULL;
+	}
+}
+
+static void
+bitwidth_handle_cmp(ir_node *node, pqueue_t *queue)
+{
+	Cmp_Custom_Information *custom;
+	ir_node *op, *obj_a, *obj_b;
+	ir_relation required_relation, rel;
+	long value = 0;
+
+	rel = get_Cmp_relation(node);
+	custom = (Cmp_Custom_Information*)bitwidth_fetch_bitwidth(node);
+	obj_a = get_Cmp_left(node);
+	obj_b = get_Cmp_right(node);
+
+	//we only do that for modes we understand
+	if (!mode_is_int(get_irn_mode(obj_a)) || !mode_is_int(get_irn_mode(obj_b)))
+		return;
+
+	if (is_Const(obj_a)) {
+		required_relation = ir_relation_greater;
+		value = get_Const_long(obj_a);
+		op = obj_b;
+	} else if (is_Const(obj_b)) {
+		required_relation = ir_relation_less;
+		value = get_Const_long(obj_b);
+		op = obj_a;
+	} else {
+		required_relation = 0;
+	}
+
+	if (required_relation && rel & required_relation) {
+		//we have what we want
+		if (MAXIMUM_NUMBER(op) <= value) {
+			custom->true_counter ++;
+		} else {
+			custom->false_counter ++;
+		}
+
+		//printf("%d %d %i\n", custom->false_counter, custom->true_counter, (int)MAXIMUM_NUMBER(op));
+
+		if (custom->false_counter == 1 && custom->true_counter > 0) {
+			//we hit the false part the first time.
+			//this means we should insert confirm nodes.
+			handle_true_blocks(node, op, queue);
+		}
+	}
+}
+
 static void
 evalulate_node(ir_node *node, pqueue_t *queue)
 {
 	bitwidth *info = bitwidth_fetch_bitwidth(node);
 	ir_mode *mode = get_irn_mode(node);
 	ir_node *obj_a, *obj_b;
+
+	if (is_Cmp(node)) {
+		bitwidth_handle_cmp(node, queue);
+	}
 
 	if (!info->valid) return;
 
@@ -307,6 +484,8 @@ evalulate_node(ir_node *node, pqueue_t *queue)
 
 			if (op_bitwidth->is_positive && new.stable_digits > 0)
 			  new.is_positive = true;
+			else
+				new.is_positive = false;
 			break;
 		}
 		case iro_Mod: {
@@ -352,7 +531,7 @@ evalulate_node(ir_node *node, pqueue_t *queue)
 			if (!mode_is_signed(mode_right))
 				new.stable_digits = a->stable_digits;
 			else
-				new.stable_digits = (int)a->stable_digits - 1;
+				new.stable_digits = MAX((int)a->stable_digits - 1, 0);
 
 			if (a->is_positive && b->is_positive && new.stable_digits > 0)
 				new.is_positive = true;
@@ -516,7 +695,7 @@ compute_bitwidth_info(ir_graph *irg)
 	//init inital state
 	remove_confirms(irg);
 	construct_confirms(irg);
-	assure_irg_outs(irg);
+	assure_irg_properties(irg, IR_GRAPH_PROPERTY_CONSISTENT_OUT_EDGES);
 	ir_nodemap_init(&irg->bitwidth.infos, irg);
 	queue = new_pqueue();
 

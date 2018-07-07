@@ -16,6 +16,8 @@ unsigned int bitwidth_used_bits(const ir_node *const node);
 
 bitwidth* bitwidth_fetch_bitwidth(const ir_node *const node);
 
+unsigned int bitwidth_upper_bound(const ir_node *const node);
+
 void compute_bitwidth_info(ir_graph *irg);
 void assure_bitwidth_info(ir_graph *irg);
 void free_bitwidth_info(ir_graph *irg);
