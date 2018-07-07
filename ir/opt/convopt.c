@@ -344,7 +344,7 @@ is_conv_stable(ir_node *o_pre_conv, ir_node *o_conv)
 		return false;
 	}
 
-	if (bitwidth_upper_bound(o_pre_conv) != bitwidth_upper_bound(o_conv)) {
+	if (bitwidth_upper_bound(o_pre_conv) > bitwidth_upper_bound(o_conv)) {
 		//then the conv is definitly not stable, as the used bits are changing
 		return false;
 	}
@@ -355,13 +355,20 @@ is_conv_stable(ir_node *o_pre_conv, ir_node *o_conv)
 static bool
 mode_check_representability(ir_mode *mode, ir_node *konst)
 {
-	if (!mode_is_int(mode)) return false;
+	unsigned int upper_bound;
+	long v;
 
-	long v = get_Const_long(konst);
+	if (!mode_is_int(mode))
+		return false;
 
-	if (!mode_is_signed(mode) && v < 0) return false;
+	v = get_Const_long(konst);
+	upper_bound = (1 << (get_mode_size_bits(mode) - (mode_is_signed(mode) ? 1 : 0))) - 1;
 
-	if (pow(2, get_mode_size_bits(mode)) < bitwidth_upper_bound(konst)) return false;
+	if (!mode_is_signed(mode) && v < 0)
+		return false;
+
+	if (upper_bound < bitwidth_upper_bound(konst))
+		return false;
 
 	return true;
 }
