@@ -393,16 +393,10 @@ handle_cmp(ir_node *node, bool *const changed)
 	preconv_mode = get_irn_mode(res.pre_conv);
 	mode = get_irn_mode(res.conv);
 
-	//if this special case happens
-	if (!(get_mode_size_bits(preconv_mode) <= get_mode_size_bits(mode) &&
-		  mode_is_signed(preconv_mode) && !mode_is_signed(mode) &&
-		  is_bound_from_null(node, res) && mode_check_representability(preconv_mode, res.konst)))
-		return;
-
 	//or if this conv is stable, then it can be replaced
-	//if (!is_conv_stable(res.pre_conv, res.conv) ||
-	//	  !mode_check_representability(preconv_mode, res.konst))
-	//	return;
+	if (!is_conv_stable(res.pre_conv, res.conv) ||
+		  !mode_check_representability(preconv_mode, res.konst))
+		return;
 
 	*changed = true;
 	//replace the Conv node with the preConv node
