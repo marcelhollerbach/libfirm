@@ -296,6 +296,15 @@ evalulate_node(ir_node *node, pqueue_t *queue)
 			int delta = (int)get_mode_size_bits(mode) - (int)get_mode_size_bits(old_mode);
 
 			new.stable_digits = MAX(op_bitwidth->stable_digits + delta, 0);
+
+			if (mode_is_signed(old_mode) && !op_bitwidth->is_positive && !mode_is_signed(mode))
+			  {
+			     // we cannot really track anything here anymore,
+			  	 // negatives are doing rollover, so we can reach
+			  	 // the full bandwith of numbers now
+			  	 new.stable_digits = 0;
+			  }
+
 			if (op_bitwidth->is_positive && new.stable_digits > 0)
 			  new.is_positive = true;
 			break;
