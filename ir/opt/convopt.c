@@ -343,10 +343,12 @@ is_conv_stable(ir_node *o_pre_conv, ir_node *o_conv)
 		//from signed to unsigned with a negative number
 		return false;
 	}
-	if (bitwidth_used_bits(o_pre_conv) != bitwidth_used_bits(o_conv)) {
+
+	if (bitwidth_upper_bound(o_pre_conv) != bitwidth_upper_bound(o_conv)) {
 		//then the conv is definitly not stable, as the used bits are changing
 		return false;
 	}
+
 	return true;
 }
 
@@ -359,7 +361,7 @@ mode_check_representability(ir_mode *mode, ir_node *konst)
 
 	if (!mode_is_signed(mode) && v < 0) return false;
 
-	if (get_mode_size_bits(mode) < bitwidth_used_bits(konst)) return false;
+	if (pow(2, get_mode_size_bits(mode)) < bitwidth_upper_bound(konst)) return false;
 
 	return true;
 }
