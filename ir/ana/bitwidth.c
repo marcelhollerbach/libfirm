@@ -265,12 +265,12 @@ op_one_unstable(ir_node *n, ir_node **unstable)
 static void
 handle_true_blocks(ir_node *cmp, ir_node *op, pqueue_t *queue)
 {
-	ir_node **block, *original_block;
-	unsigned int size = 0, max = 10;
+	ir_node *original_block;
+	ir_nodemap map;
+
+	ir_nodemap_init(&map, get_irn_irg(cmp));
 
 	original_block = get_block(cmp);
-
-	block = NEW_ARR_F(ir_node*, max);
 
 	//collect the blocks that are positive
 	foreach_out_edge(cmp, to_cond) {
@@ -285,14 +285,14 @@ handle_true_blocks(ir_node *cmp, ir_node *op, pqueue_t *queue)
 			assert(is_Proj(proj));
 
 			//find the true proj node of the cmp construct
-			if (get_Proj_num(proj) == 1) {
+			if (get_Proj_num(proj) == 1 ) {
 
-				block[size] = get_irn_out(proj, 0);
-				size++;
+				ir_node *goal = get_irn_out(proj, 0);
 
-				if (size == max) {
-					max*=2;
-					ARR_RESIZE(ir_node*, block, max);
+				assert(is_Block(goal));
+
+				if (block_dominates(original_block, goal)) {
+					ir_nodemap_insert(&map, goal, ((void*)(intptr_t)true));
 				}
 			}
 		}
@@ -305,8 +305,9 @@ handle_true_blocks(ir_node *cmp, ir_node *op, pqueue_t *queue)
 		foreach_out_edge_safe(op, edge) {
 			ir_node *const succ = get_edge_src_irn(edge);
 			int pos = get_edge_src_pos(edge);
+			ir_node *const blk = get_block(succ);
 
-			if (get_block(succ) != original_block) {
+			if (blk != original_block && ir_nodemap_get(ir_node, &map, blk)) { //FIXME check that get_block(succ) is in block
 				bitwidth *op_b = bitwidth_fetch_bitwidth(op);
 				ir_node *konst, *confirm;
 
