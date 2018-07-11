@@ -681,7 +681,7 @@ compute_bitwidth_info(ir_graph *irg)
 
 	//init inital state
 	remove_confirms(irg);
-	construct_confirms(irg);
+	construct_confirms_only(irg);
 	assure_irg_properties(irg, IR_GRAPH_PROPERTY_CONSISTENT_OUT_EDGES);
 	ir_nodemap_init(&irg->bitwidth.infos, irg);
 	queue = new_pqueue();
