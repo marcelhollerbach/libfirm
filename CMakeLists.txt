@@ -521,6 +521,16 @@ set(INSTALL_HEADERS
 	include/libfirm/vrp.h
 )
 
+set(IR2VHDL_SOURCE
+	ir/opt/firm2vhdl/ir2vhdl.c
+	ir/opt/firm2vhdl/vhdlmodes.c
+  	ir/opt/firm2vhdl/firm2vhdl.c
+  	ir/opt/firm2vhdl/lower-for-vhdl.c
+)
+
+add_executable(ir2vhdl ${IR2VHDL_SOURCE})
+target_link_libraries(ir2vhdl firm)
+
 install(TARGETS firm
 	EXPORT libfirmTargets
 	DESTINATION lib
