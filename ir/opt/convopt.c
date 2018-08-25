@@ -436,6 +436,7 @@ handle_cmp(ir_node *node, bool *const changed)
 	//renew the mode on the const
 	new_const = new_r_Const_long(get_irn_irg(node), preconv_mode, get_Const_long(res.konst));
 	set_irn_n(node, res.pos_const, new_const);
+	printf(">>>>>>>>>>>>>>:HIT %s\n", node->irg->ent->name);
 }
 
 static bool
@@ -496,6 +497,7 @@ handle_arith(ir_node *node, bool *const changed)
 
 		exchange(node, new_conv);
 	}
+	printf(">>>>>>>>>>>>>>:HIT2\n");
 	clear_irg_properties(get_irn_irg(node), IR_GRAPH_PROPERTY_CONSISTENT_BITWIDTH_INFO);
 }
 

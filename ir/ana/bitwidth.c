@@ -673,6 +673,57 @@ dump_bitwidth_info(void *ctx, FILE *F, const ir_node *node)
 	}
 }
 
+#include "irprog_t.h"
+
+typedef struct
+{
+   unsigned int number_of_nodes;
+   unsigned long long safed_bitwidth;
+   unsigned long long bitwidth;
+} Node_Evaluation_part;
+
+typedef struct {
+   Node_Evaluation_part main, const_free;
+} Node_Evaluation;
+
+static void
+eval_node(ir_node *n, void *data)
+{
+	Node_Evaluation *env = data;
+	ir_mode *mode = get_irn_mode(n);
+
+	if (is_meaningfull(n)) {
+		bitwidth *b;
+
+		b = bitwidth_fetch_bitwidth(n);
+		env->main.number_of_nodes++;
+		env->main.safed_bitwidth += get_mode_size_bits(mode) - b->stable_digits;
+		env->main.bitwidth += get_mode_size_bits(mode);
+	}
+
+	if (is_meaningfull(n) && !is_Const(n)) {
+		bitwidth *b;
+
+		b = bitwidth_fetch_bitwidth(n);
+		env->const_free.number_of_nodes++;
+		env->const_free.safed_bitwidth += get_mode_size_bits(mode) - b->stable_digits;
+		env->const_free.bitwidth += get_mode_size_bits(mode);
+	}
+}
+
+static void
+_dump_helper(ir_graph *irg)
+{
+	Node_Evaluation env = { { 0, 0, 0 } , { 0, 0, 0 }};
+	ir_prog *prog = get_irp();
+
+	irg_walk_graph(irg, eval_node, NULL, &env);
+
+	if (env.const_free.number_of_nodes > 0 && env.const_free.safed_bitwidth != env.const_free.bitwidth)
+	  printf("%s:%s,%d,%Lu,%Lu,%d,%Lu,%Lu\n", prog->name, irg->ent->name, env.main.number_of_nodes, env.main.bitwidth / env.main.number_of_nodes, env.main.safed_bitwidth / env.main.number_of_nodes,
+	  	env.const_free.number_of_nodes, env.const_free.bitwidth / env.const_free.number_of_nodes, env.const_free.safed_bitwidth / env.const_free.number_of_nodes);
+}
+
 void
 compute_bitwidth_info(ir_graph *irg)
 {
@@ -701,6 +752,8 @@ compute_bitwidth_info(ir_graph *irg)
 	optimize_cf(irg);
 	remove_confirms(irg);
 	del_pqueue(queue);
+
+	_dump_helper(irg);
 
 	add_irg_properties(irg, IR_GRAPH_PROPERTY_CONSISTENT_BITWIDTH_INFO);
 }
