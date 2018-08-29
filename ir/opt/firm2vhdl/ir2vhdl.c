@@ -61,7 +61,10 @@ static void irp2vhdl(char *filename)
 		optimize_cf(irg);
 		dump_ir_graph(irg, "cf");
 
-		conv_opt(irg);
+		//removed conv nodes are somehow a problem for ir2vhdl
+		// Keeping the conv nodes fixes a lot of problems for c vs. vhdl code generation
+		//conv_opt(irg);
+
 		compute_bitwidth_info(irg);
 		dump_ir_graph(irg, "conv");
 
